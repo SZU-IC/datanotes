@@ -1,0 +1,856 @@
+一、Spark
+	①RDD
+		（1）特性
+	②DAG
+		（1）什么是DAG？
+		（2）如何划分DAG？
+		（3）DAG如何生成？
+	③调度系统
+		（1）调度系统主要工作
+		（2）调度系统核心组件
+			ⅠDAGScheduler
+			ⅡSchedulerBackend
+			ⅢTaskScheduler
+		（3）数据不动代码动
+	④内存管理
+	⑤通用性能调优
+		（1）能省则省，能拖则拖
+		（2）Tungsten优化
+		（3）AQE优化
+	⑥Shuffle性能杀手
+		（1）Map和Reduce
+		（2）reduceByKey和groupByKey
+	⑦广播变量
+		（1）普通变量
+		（2）分布式数据集
+		（3）问题，参数
+	⑧CPU高效利用
+		（1）并行度：spark.default.parallism、spark.sql.shuffle.partitions
+			 并发度：spark.executor.cores决定
+		（2）CPU低效的原因
+			Ⅰ线程挂起：内存不够
+			Ⅱ调度开销：分区数太多
+	⑨内存视角
+		（1）User Memory
+		（2）Cache滥用
+		（3）Storage Memory
+	⑩磁盘视角和网络视角
+		（1）作用：Shuffle阶段溢出临时文件、存储Shuffle阶段的中间文件、缓存分布式数据集
+	
+	SparkSQL性能调优
+		1、RDD和DataFrame
+			①RDD和DataFrame、DataSet的区别
+		2、Catalyst逻辑计划优化
+			①优化规则：谓词下推、列裁剪、常量替换
+		3、Catalyst物理计划优化
+			①优化Spark Plan：基于一些既定的规则将逻辑计划中的关系操作符一一映射成物理操作符。JoinSelection根据Join策略决定选择哪种Join
+			②生成Physical Plan：Preparation Rules，如EnsureRequirements规则（添加Shuffle、Sort等）、ReuseExchange规则
+		4、Tungsten钨丝计划
+			①数据结构设计
+			②基于内存页的内存管理
+			③WSCG
+		5、SparkSQL 3.0特性
+			①AQE
+				Ⅰ 优化触发的时机
+				Ⅱ 特点：赖以优化的统计信息 优化决策
+				Ⅲ Join策略调整 自动分区合并 自动数据倾斜处理
+			②DPP
+				Ⅰ条件
+			③Join Hints
+				Ⅰ单机模式下Join
+				Ⅱ分布式模式下
+				ⅢSpark如何选择Join策略
+
+二、Hadoop
+	1、HDFS
+		①架构：NameNode、DataNode、SecondaryNameNode
+		②特性
+			主从架构、副本机制、分块存储、一次写入多次读取、分布式存储
+		③读写流程
+		④NameNode工作机制
+		⑤DataNode工作机制
+	2、MapReduce
+		①架构：分而治之 Map、Reduce（setup、map/reduce、cleanup、run）
+		②map数量 
+			spiltSize = min(maxSize,max(minSize,blockSize))
+		③reduce数量
+			hive.exec.reducers.max = 1009
+			hive.exec.reducers.bytes.per.reducer = 256MB
+			set mapreduce.job.reduces = -1; 禁用
+			设置参数无效场景：
+				order by 、 笛卡尔积 、map端输出的数据量很小
+		④MapReduce机制
+			Ⅰ MapTask机制
+				mapreduce.task.io.sort.mb = 100MB;
+				mapreduce.map.sort.spill.percent = 0.8;	溢写的内存占比
+				mapreduce.task.io.sort.factor = 10; 一次合并溢写文件数
+			
+			Ⅱ ReduceTask机制
+				Copy阶段
+				Merge阶段
+				Reduce阶段
+			Ⅲ Shuffle机制
+				Collect阶段
+				Spill阶段
+				Merge阶段
+				Copy阶段
+				Sort阶段
+	3、YARN
+		①组件：RM(Scheduler、ApplicationManager)、NodeManager、ApplicationMaster、Container
+		②调度策略
+
+三、Hive
+	1、架构和工作流程
+		架构：客户端、Driver端、解析器、编译器、优化器、执行器
+		执行引擎：MR、Spark、Tez
+			Spark：Spark on Hive（操作Hive底层源数据）、Hive on Spark
+	2、分区表
+		①参数
+			hive.exec.dynamic.partition=true;
+			hive.exec.dynamic.partition.mode=nonstrict;
+			hive.exec.dynamic.partition.node=1000;	//最多可以创建的动态分区
+			hive.exec.dynamic.partition.pernode=100; 每个执行MR节点最多可以创建的动态分区
+			hive.exec.max.created.files=100000;	整个MR JOB中可以创建的文件数
+		②strict模式限制
+			对分区表查询，where中过滤字段不是分区字段
+			笛卡尔积join查询，没有on条件
+			order by查询，不带limit
+	3、分桶表
+		①参数：cluster by(id) into 503 buckets
+		②分区是分目录，分桶是份文件。
+		③注意：
+			reduce的个数设置大于等于分桶数。
+			分桶表只能通过insert overwrite的方式将普通表的数据加载到分桶表中。
+			招证中的inceptor支持事务，因此表存储格式需要为orc。
+	4、自定义UDF函数
+		①UDF函数：继承UDF（Java）、GenericUDF（scala）  --UDAF、UDTF类似
+		②高阶函数
+			窗口函数：row_number(不同、不空)、rank(同、会有空位)、dense_rank(同、不会有空位)、first_value()、last_value()
+					  lead(col,n,default)取窗口内往下第n行值、lag(col,n,default)、collect_set()、collect_list()
+					  sort_array(collect_list(field))	对数组进行排序，通常结合collect_set()和collect_list()使用
+					  over(partition by field1 order by field2)
+					  CURRENT_ROW(),n PRECEDING,UNBOUNDED PRECEDING,N FOLLOWING,UNBOUNDED FOLLOWING
+					  OVER(ORDER BY score desc rows 2 PRECEDING) AS avg_score
+			JSON相关：get_json_object(field,return key)
+			列转行：explode ，lateral view explode(expression) tableAlias as columnAlias
+			行转列：concat_ws(),concat()
+			判断函数：case when then else end
+	5、表的优化
+		①小表Join大表（MapJoin）
+			设置参数自动选择MapJoin：set hive.auto.convert.join=true;
+			大小表阈值设置：set hive.mapjoin.smalltable.filesize=25000000;
+		②大表Join大表
+		   Ⅰ 过滤无效数据、对业务没有影响数据（空key数据）
+		   Ⅱ 分而治之：是否是某些key的数据太多，可以单独拿出来进行打散
+	6、优化 
+		①表层面优化
+			分区表
+			分桶表（主要用于join、采样）
+				CLUSTERED BY(userid) SORTED BY(viewTime) INTO 32 BUCKETS
+				两个表以相同的方式分桶（默认是hash），会提高Join速度
+			②选择合适的文件存储格式
+				TextFile：行存储，默认格式；可结合Gzip、Bzip2等压缩方式使用（推荐可切分压缩方式）
+				SequenceFile：二进制，可分割可压缩（RECORD、BLOCK）
+				RCFile：数据块按行分块，每块按列存储
+				ORCFile：数据块按行分块，每块按列存储；会基于列创建索引，查询速度比较快；
+				ParquetFile：列式存储；对于大型查询类型是高效的，特别是扫描特定列；一般使用Snappy（默认）、Gzip压缩；支持Impala查询引擎
+			③选择合适的压缩格式
+				压缩格式	是否可拆分	是否可自带	压缩率	速度	是否hadoop自带
+				gzip		否			是			很高	比较快	是 
+				lzo			是			是 			比较高	很快	否
+				snappy		否			是			比较高  很快    否
+				bzip2		是 			否			最高	很慢	是 
+		②HQL层面优化
+			Ⅰ 执行计划：explain select * from tableName;
+		    Ⅱ 列、行、分区裁剪
+				参数：set hive.optimize.cp = true; 列剪裁，只取查询中需要的列；
+					  set hive.optimize.pruner = true;分区裁剪
+			Ⅲ 谓词下推 ：使SQL语句中where逻辑尽可能提前执行，减少下游处理的数据量。
+				参数：set hive.optimize.ppd=true;
+			Ⅳ 合并小文件
+				参数：
+					Map端输入合并
+						set hive.input.format=org.apache.hadoop.hive.ql.io.CombineHiveInputFormat;
+						set hive.input.format=org.apache.hadoop.hive.ql.io.HiveInputFormat;		#不合并
+				    Map/Reduce端输出合并
+						set hive.merge.mapfiles=true;
+						set hive.merge.mapredfiles=true;
+						set hive.merge.size.per.task=256000000;	#合并文件大小
+						set mapred.max.split.size=256000000;
+						set mapred.min.split.size.per.node=1; 	//一个节点上split的最少值
+						set mapred.min.split.size.per.rack=1;	//一个机架上split的最少值
+			Ⅴ 合理设置MapTask并行度
+				splitSize = max(minSize,min(maxSize,blockSize))
+				mapreduce.input.fileinputformat.split.minSize=1;
+				mapreduce.input.fileinputformat.split.maxsize=256;
+			Ⅵ 合理设置ReduceTask并行度
+				ReduceTask过多，产生大量的小文件，对HDFS造成压力。
+				ReduceTask过小，单个ReduceTask可能处理的数据量过多，易产生数据倾斜，或查询较慢。
+				参数1：hive.exec.reducers.bytes.per.reducer=256M;
+				参数2：hive.exec.reducers.max=1009;
+				参数3：mapreduce.job.reducers=-1;(默认-1，由上面两个参数进行设置)
+				N = Math.min(参数2，总输入数据大小 / 参数1);
+			Ⅶ Join优化
+				Join的整体优化原则：
+					优先过滤后再进行Join操作，最大限度的减少参与Join的数据量。
+					小表Join大表，最好启动MapJoin，hive自动启用MapJoin，小表不能超过25M，可以更改。
+					Join On的条件相同的话，最好放入同一个Job，并且Join表的排列顺序从小到大。
+					如果多张表做Join，如果多个链接条件都相同，会转换成一个Job。
+				优先过滤数据
+					尽量减少每个阶段的数据量。
+				小表Join大表 
+					将小表放在左边，hive.auto.convert.join=true;
+				大表Join大表
+			八 SMBJ（Sort-Merge-Bucket Join）
+				要求：
+					针对参与Join的两张表要做相同的hash散列，每个桶里面的数据要排序。
+					两张表的分桶个数要成倍数。
+					开启SMB Join的开关。
+				参数：
+					set hive.enforce.sortmergebucketmapjoin=false;	#当用户执行bucket map join时，发现不能执行时，禁止查询。
+					set hive.auto.convert.sortmerge.join=true;	    #如果join的表通过sort merge join条件，join是否会自动转换为sort merge join；
+					## 当两个分桶表 join 时，如果 join on的是分桶字段，小表的分桶数是大表的倍数时，可以启用 mapjoin 来提高效率。 
+					# bucket map join优化，默认值是 false set hive.optimize.bucketmapjoin=false; 
+					## bucket map join 优化，默认值是 false set hive.optimize.bucketmapjoin.sortedmerge=false;
+			Ⅸ Join数据倾斜处理
+				参数设置：
+					# join的键对应的记录条数超过这个值则会进行分拆，值根据具体数据量设置 
+						set hive.skewjoin.key=100000; 
+					# 如果是join过程出现倾斜应该设置为true 
+						set hive.optimize.skewjoin=false;
+					#如果开启了，在 Join 过程中 Hive 会将计数超过阈值 hive.skewjoin.key（默认100000）的倾斜 key 对应的行临时写进文件中，
+					然后再启动另一个 job 做 map join 生成结果。
+						set hive.skewjoin.mapjoin.map.tasks=10000;
+			Ⅹ Group By优化
+				1、Map端部分预聚合
+					set hive.map.aggr=true;
+					#设置map端预聚合的行数阈值，超过该值就会拆分Job，默认值为100000；
+					set hive.groupby.mapaggr.checkinterval=100000;
+				2、有数据倾斜实现负载均衡（在第一个 MapReduce 任务中，map 的输出结果会随机分布到 reduce 中，每个 reduce 做部分聚合操作，
+				    并输出结果，这样处理的结果是相同的`group by key`有可能分发到不同的 reduce 中，从而达到负载均衡的目的； 
+					在第二个 MapReduce 任务再根据预处理的数据结果按照 group by key 分布到各个 reduce 中，最后完成最终的聚合操作。）
+					set hive.groupby.skewindata=false;	//先预聚合后汇总
+			ⅩⅠ Order By 
+				1、区别
+					order by只启动一个reduce
+					sort by单个reduce结果有序
+					cluster by：对于同一字段分桶并排序，不能和sort by连用
+					distribute by + sort by
+					
+Parquet和ORC的存储区别：
+	Parquet支持嵌套格式，ORC不是很支持。
+	ORC的读取速度和压缩比率都比Parquet好
+	Parquet：Row Group、Column Chunk、Data Page 
+	ORC：    Row Data（10000行）、 Column
+
+ORC存储支持Snappy压缩，但是Snappy不支持切分，底层跑MR任务时不能切分数据块，容易导致数据倾斜
+create table stu_orc(id int,name string)
+stored as orc 
+tblproperties ('orc.compress'='snappy');
+
+create table stu_par(id int,name string)
+stored as parquet 
+tblproperties ('parquet.compression'='lzo');			#可以使用parquet+lzo进行存储和压缩
+
+create table stu_par(id int,name string)
+stored as parquet 
+tblproperties ('parquet.compression'='snappy');
+
+SQL优化案例：
+	上游有一张增量表，每天一个增量分区，使用的时候有很多task，后来添加了combineHiveInputFormat参数，效率从30min提升到20min，同时向上游反馈。
+	还有一些是某些task执行特别慢，查看了task的input数据量，发生了数据倾斜。
+	小表关联大表使用了mapjoin。
+
+
+四、HBase
+	1、基础
+		①数据模型：稀疏、分布式、多维、排序的映射
+			逻辑结构：存储稀疏、数据存储多为，不同的行具有不同的列。数据存储整体有序，按照RowKey的字典序排列，RowKey为Byte数组。
+				Row Key：行号（排序） 
+				Column Family：列族,切分store
+				Region：按照RowKey拆分
+				Store：竖向切分划分（列划分）
+			物理存储：(StoreFile)
+				Key：RowKey + ColumnFamily + Column Qualifier + TimeStamp + Type（Put/Delete）
+				Value
+				HDFS不能修改数据，根据时间戳版本标记，读取最新的版本
+			
+			NameSpace（Database）：default、hbase（内置表）
+			Table：定义表时只需要声明列族即可，不需要声明具体的列，可以动态、按需指定。
+			Row：RowKey+多个Column，只能根据RowKey进行检索
+			Column：Column Family + Column Qualifier（列限定符）
+			TimeStamp：标识数据版本，每条数据写入时，系统会自动为其加上该字段。
+			Cell：{rowkey+column Family：column Qualifier，timestamp}，唯一确定单元
+		②基础架构：主从架构 
+			Master
+				hbase:meta存储在hdfs，有master管理。
+				主要进程，通过ZK监控RS进程状态，启动监控region是否需要负载均衡，故障转移和region拆分。
+			BackUp-Master
+			Zookeeper
+				master高可用，记录RegionServer的部署信息，并且存储meta表的位置。
+			RegionServer
+		③基本操作
+			Shell操作
+			Java客户端连接操作
+			Spark操作
+	2、进阶
+		①Master架构
+			Ⅰ Master实现类HMaster，通常部署在NameNode上。
+				RegionServer将自己的信息注册到Zookeeper上，Master直接找Zookeeper去管理RegionServer
+				元数据表meta
+				负载均衡器调节	-- 	Region负载均衡，通过Zk了解RS的启动情况，5分钟调控看过一次。
+				元数据表管理器  --  管理meta表
+				MasterProcVAL预写日志 -- 防止Master挂掉，先写到预写日志，挂掉后可以通过Backup Master来完成	/hbase/MasterData/WALs
+									  -- 避免小文件，32M文件或者1h滚动，当操作执行到meta表之后删除WAL。
+				Meta表介绍：
+					RowKey: {[table],[region start key],[region id]}
+					列：	{info:regioninfo,info:server,info:serverstartcode}
+				Admin：连接Master	Table：连接Zookeeper
+		②RegionServer：实现类 HRegionServer，通常部署在DataNode
+			Ⅰ WAL预写日志
+				保证有序
+			Ⅱ BlockCache 读缓存，只有一个
+				
+			Ⅲ MemStore 写缓存，需要排序（每个Store有单独一个）
+		③写流程 
+			Client --> Zookeeper 发送连接请求，读取meta表的地址。
+			读取meta表的数据缓存到 MetaCache（几MB） --> Meta表发生变化需要重新读取
+			发送put请求，将请求写到WAL并落盘
+			操作put请求写入到对应的MemStore并排序
+			等待触发刷写条件写入到对应的store（只能保证单文件有序）
+
+			Ⅰ、先写到WAL原因：数据在MemStore会排序并保留一段时间，存在内存中不安全，数据写入MemStore之后就会返回成功的ACK，此时宕机可以通过WAL找回。
+			Ⅱ、MemStore Flush(资源充足，效率最高)
+				某个memstore大小：hbase.hregion.memstore.flush.size=128M，其所在region的所有memstore都会刷写（为了保证不同列族可以一起刷写）
+				memstore的大小达到 
+					hbase.hregion.memstore.flush.size(128M) * hbase.hregion.memstore.block.multiplier(默认为4)
+					刷写同时阻止继续往该memstore写数据（由于线程监控是周期性的，所以有可能面对数据洪峰，尽管可能性比较小）
+			Ⅲ、LOWER_MARK(低水位) 和 HIGH_MARK(高水位)	（资源可能不那么充足）	-->  由HRegionServer中的属性MemStoreFlusher内部线程FlushHandler控制，避免写太多造成OOM
+				LOWER_MARK:
+					JAVA_HEAPSIZE * hbase.regionserver.global.memstore.size（默认值0.4）* 
+					hbase.regionserver.global.memstore.size.lower.limit（默认值0.95）
+				HIGH_MARK
+					JAVA_HEAPSIZE * hbase.regionserver.global.memstore.size（默认值0.4）	--   阻止往里面写数据
+			Ⅳ、刷写时间（1h）（写入数据量太少）	-->  HRegionServer的属性PeriodicMemStoreFlusher控制
+					hbase.regionserver.optionalcacheflushinterval（默认1小时）
+		
+		④ HFile结构 -- 每一个store文件夹下实际存储数据的文件
+			数据本身Key 、Value 
+				rowlength、row、columnfamilylength、columnfamily、columnqualifier、timestamp、keytype（put）
+			元数据记录
+			文件信息
+			数据索引
+			元数据索引
+			一个固定长度的尾部信息（版本信息）
+			通过命令查看：bin/hbase hfile -m  -f /hbase/data/命名空间/表名/regionID/列族/HFile名
+		⑤读流程
+			客户端创建连接，向ZK发送请求，请求meta表地址，向RegionServer读取meta表数据到MetaCache
+			发送get请求，将请求写入WAL并落盘
+			读取BlockCache（尾部信息--对比信息是否一致）
+			读取对应写缓存和store文件，同时缓存到BlockCache
+			合并所有读取数据返回（只取最高版本）
+
+			合并读取数据优化：
+				HFile带有对应的索引文件，读取对应Rowkey数据会比较快。
+				BlockCache会缓存之前读取的内容和元数据信息，如果HFile没有发生变化（记录在HFile为信息中），则不需要再次读取
+				使用布隆过滤器过滤当前HFile中不需要读取的RowKey。
+		⑥ StoreFile Compaction
+			Minor Compaction（从旧到新，一般小合并和大合并一起工作，默认3个HFile） -- 在Minor Compaction会保留deleteAll
+				hbase.hstore.compaction.ratio（默认1.2F）合并文件选择算法中使用的比率。
+				hbase.hstore.compaction.min（默认3）  为Minor Compaction的最少文件个数。
+				hbase.hstore.compaction.max（默认10） 为Minor Compaction最大文件个数。
+				hbase.hstore.compaction.min.size（默认128M）为单个Hfile文件大小最小值，小于这个数会被合并。
+				触发条件：
+					过小合并，过大不合并
+					文件大小/ hbase.hstore.compaction.ratio<剩余文件大小和 则参与压缩 。不建议修改ratio
+					满足压缩条件的文件个数达不到个数要求（3<=count<=10）则不压缩
+			Major Compaction（将一个Store下所有HFlie合并成一个大文件）
+				默认7天
+		⑦ Region Split
+			Ⅰ、预分区（自定义分区）
+				create 'staff1','info', SPLITS => ['1000','2000','3000','4000']  --> 5个Region
+				create 'staff2','info',{NUMREGIONS => 15, SPLITALGO => 'HexStringSplit'}
+				create 'staff3', 'info',SPLITS_FILE => 'splits.txt'	 ---> 按照文件设置的规则预分区
+			Ⅱ、系统分区
+				当前的RegionServer上该表只有一个Region，按照 2 * hbase.hregion.memstore.flush.size(128M)切分
+				否则按照hbase.hregion.max.filesize(10G)分裂
+	3、优化
+		① RowKey设计
+			生成随机数、hash、散列值
+			时间戳反转（旧的会写在前面，新的在后面 99999999-时间戳）
+			字符串拼接
+
+			Ⅰ 组合实现（要根据需求设置）
+			可以穷举的写在前面
+			rowkey设计格式 => date(yyyy-MM)^A^Auserdate(-dd hh:mm:ss)
+				scan: startRow
+					  stopRow
+			Ⅱ 添加预分区
+				rowkey设计格式 => 分区号date(yyyy-MM)^A^Auserdate(-dd hh:mm:ss)
+		②参数优化
+			Ⅰ Zookeeper会话超时时间：zookeeper.session.timeout=90000ms
+				当一个RegionServer挂掉，90s后Master才能发现，可以调到20~30s
+			Ⅱ Major Compaction大合并 （默认7天）
+			Ⅲ HStore文件大小
+				hbase.hregion.max.filesize=10GB(可以调大，现在一般不跑mr)
+			Ⅳ 优化HBase客户端缓存
+				hbase.client.write.buffer=2M 
+			Ⅴ Scan扫描HBase所获取的行数
+			Ⅵ 读缓存和写缓存
+				hfile.block.cache.size=0.4
+				hbase.regionserver.global.memstore.size=0.4
+				读请求比较多提高读缓存比例，写缓存比较多提高写缓存比例。
+		③JVM调优
+			Ⅰ 内存设置
+			Ⅱ 垃圾回收器设置
+		④HBase经验法则
+			Ⅰ Region大小控制在10-50G
+			Ⅱ cell大小不超过10M
+			Ⅲ 1张彪有1到3个列族，不要设计太多。最好1个，如果使用多个尽量保证不会同时读取多个列族。
+			Ⅳ 1到2个列族的表格，设计50-100个Region。
+			Ⅴ 列族名称要尽量短。
+			Ⅵ 如果RowKey设计时间在最前面，会导致有大量的旧数据存储在不活跃的Region中，使用的时候，仅仅会操作少数的活动Region，此时建议增加更多的Region个数。
+			Ⅶ 如果只有一个列族用于写入数据，分配内存资源的时候可以做出调整，即写缓存不会占用太多的内存。
+
+	5、Phoenix二级索引
+		① 全局索引
+			创建全局索引时，会在HBase中建立一张新表，索引和数据表存放在不同的表中，适合多读血少的业务场景。
+			如果想查询的字段不是索引字段的话索引表不会被使用，也就是说不会带来查询速度的提升。
+		② 解决全局索引的问题
+			包含索引（covered index）
+			create index my_index on my_table(v1) include(v2)
+
+			本地索引 （适合频繁写）
+				索引数据和数据表的数据是存放在同一张表中（且是同一个Region），避免了在写操作的时候往不同服务器的索引表中写索引带来的额外开销。
+				CREATE LOCAL INDEX my_index ON my_table (my_column);	-- my_column可以写多个
+	
+	6、Hive集成HBase
+		CREATE TABLE hive_hbase_emp_table(
+    		empno int,
+    		ename string,
+    		job string,
+    		mgr int,
+    		hiredate string,
+    		sal double,
+    		comm double,
+    		deptno int
+		)
+		STORED BY 'org.apache.hadoop.hive.hbase.HBaseStorageHandler'
+		WITH SERDEPROPERTIES ("hbase.columns.mapping" = ":key,info:ename,info:job,info:mgr,info:hiredate,info:sal,info:comm,info:deptno")
+		TBLPROPERTIES ("hbase.table.name" = "hbase_emp_table");
+
+		需要使用insert into 插入不能使用load data into 
+
+		在Hive中创建外部表映射到HBase的表中
+		CREATE EXTERNAL TABLE relevance_hbase_emp(
+    		empno int,
+    		ename string,
+    		job string,
+    		mgr int,
+    		hiredate string,
+    		sal double,
+    		comm double,
+    		deptno int
+		)
+		STORED BY 
+		'org.apache.hadoop.hive.hbase.HBaseStorageHandler'
+		WITH SERDEPROPERTIES ("hbase.columns.mapping" = 
+		":key,info:ename,info:job,info:mgr,info:hiredate,info:sal,info:comm,info:deptno") 
+		TBLPROPERTIES ("hbase.table.name" = "hbase_emp_table");
+
+
+五、Kafka
+	1、基础
+		①概述
+			Ⅰ 特点：高吞吐、低延迟、分布式存储、容错性、可拓展性、高并发、发布订阅模式
+			Ⅱ 使用场景
+				消息推送、监控、告警、流式处理、缓存、缓冲/解耦、削峰
+			Ⅲ 架构 
+				Producer ：消息不丢失，至少一次
+				Consumer：断点续传，记录消费的offset。拉取模式
+				Broker
+				Topic
+				Partition：单个partition内有序
+				Leader
+				Follower
+				Controller
+			Ⅳ 使用命令
+				topic：bin/kafka-topics.sh --bootstrap-server hadoop102:9092 --create --partitions 1 --replication-factor 3 --topic first
+				producer：bin/kafka-console-producer.sh --bootstrap-server hadoop102:9092 --topic first
+				consumer：bin/kafka-console-consumer.sh --bootstrap-server hadoop102:9092 --from-beginning --topic first		--从头开始读
+			Ⅴ 生产者（发送消息）
+				Producer 
+					main线程：将消息发送给双端队列：RecordAccmulator（32M）
+						Interceptor
+						Serializer
+						Partitioner
+					Sender线程：不断从RecordAccmulator队列拉取消息发送到Kafka Broker
+						send 
+					参数：
+						batch.size: 默认是16K，适当增加该值提高吞吐量。但是设置太大会导致数据延迟。
+						linger.ms： 默认为0ms，建议设置为5-100ms。
+						buffer.Memory:RecordAccmulator的大小，默认32M
+						acks：-1，0，1
+						retries：重试次数
+						retry.backoff.ms:两次重试的时间间隔，默认是100ms
+						enable.idempotence:默认为true，开启幂等性
+					生产者分区partitioner：
+						提高并行度：生产者以分区为单位发送数据，消费者以分区为单位消费数据。
+						便于合理使用存储资源：实现负载均衡。
+						
+						可以自定义Partitioner
+					如何提高吞吐量：
+						bacth.size = 16K
+						linger.ms = 默认为0，修改为5-100ms。
+						buffer.Memory: RecordAccumulator，默认32M。
+						compression.type: 默认为none，可配置为gzip，snappy，lz4。
+					数据可靠性：
+						acks = -1：需要等到leader和ISR中副本同步完全。
+						分区副本大于等于2
+						ISR里应答的最少副本数量大于等于2， 如果分区副本为1或min.insync.replicas默认为1，仍然有丢数据的风险。
+					数据不重复（因为重试机制）：
+						Kafka中的数据语义：
+							至少一次：ack=-1 + 分区副本大于等于2 + ISR里应答的最小副本数量大于等于2
+							最多一次：ack = 0
+							精确一次：至少一次 + 幂等性 <PID,Partition,SeqNumber>:PID为机器重启都会生成一个。Partition：分区号；SeqNumber：单调递增
+								幂等性只能保证单分区单会话内不重复。
+						Kafka事务：开启事务必须开启幂等性 (保证多分区会话的不重复)
+							initTransactions()
+							beginTransaction()
+							sendOffsetsToTransaction()
+							commitTransaction()
+							abortTransaction()
+
+					数据乱序：
+						1.x版本之后保证单分区有序
+							未开启幂等性：max.in.flight.requests.per.connection=1
+							开启幂等性： max.in.flight.requests.per.connection设置小于等于5（会缓存最近5个requests的元数据）
+			
+			Ⅵ Broker
+				① 参数
+					log.segment.bytes = 1G 
+					log.index.interval.bytes = 4kb，kafka里面每当写入了4kb大小的日志（.log）,就会往index文件里面记录索引。
+					log.retention.hours=168,默认7天 
+				②节点服役和退役
+			Ⅶ Kafka副本（一般2个）太多占用太多磁盘，网络传输
+				基本信息：
+					AR = ISR + OSR 
+					读写数据只会往leader上读写，Follower长时间没有向Leader发送同步数据命令就会被踢出ISR replica.lag.time.max.ms=30是
+				Leader选举
+					broker启动后向zk注册，每隔broker都有一个controller，谁先注册，谁说了算。
+					controller决定leader选举，根据AR的顺序进行选举（在ISR中存活）
+				Follower故障恢复
+					LEO：最新的offset+1，下一个写的位置
+					HW：所有副本中最小的LEO+1
+
+					Follower将自己高于本地记录的HW的记录截取掉，，从HW开始向Leader同步
+				Leader故障
+					从ISR选举出一个新的Leader
+					为了保证数据一致性，其余的Follower会先将各自的log高于HW的截取掉，然后再和新Leader同步。（不能保证不丢失）
+
+				分区副本分配：负载均衡
+					手动调整分区副本
+					Leader Partition负载均衡：如果某些机器宕机，重启后可能导致负载不均衡。
+						auto.leader.rebalance.enable=true;
+						leader.imbalance.per.broker.percentage=10%
+						leader.imbalance.check.interval.seconds=300s
+					增加副本因子
+						命令行：bin/kafka-reassign-partitions.sh --bootstrap-server hadoop102:9092 --reassignment-json-file increase-replication-factor.json --execute
+			Ⅷ Kafka文件存储机制
+				Topic -> Partition -> log -> Segment(1G) {.log,.index,.timeindex（用来删除日志，默认7天）}
+				index和log文件是以当前segment的第一条消息的offset命名			
+				index为稀疏索引，每往log文件存储4k数据，会往index文件写入一条索引。log.index.interval.bytes=4kb 	log.segment.bytes=1G 
+				index中保存的索引是相对offset
+			
+			Ⅸ 文件清理策略
+				kafka默认的日志保存时间为7天
+					log.retention.hours=168
+					log.retention.minutes
+					log.retention.ms 
+					log.retention.check.interval.ms 负责设置检查周期，默认5min
+				delete策略
+					log.clean.policy = delete 
+					基于时间：默认打开。以segment中所有记录中的最大时间戳作为该文件时间戳。
+					基于大小：默认关闭。超过设置的所有日志总大小，删除最早的segment。	-- log.retention.bytes=-1,表示无穷大
+				compact策略
+					log.clean.policy = compact ，所有数据启用压缩策略，对于key 不同的value值，只保留一个版本
+					压缩后的offset可能不连续
+			Ⅹ 高效读写数据
+				Kafka本身是分布式集群，可以采用分区技术，并行度高
+				读数据采用稀疏索引，可以快速定位要消费的数据
+				顺序写磁盘
+				页缓存 + 零拷贝
+					页缓存将操作系统多余的内存当作磁盘的缓存来使用
+					零拷贝不经过socket Cache，直接到网卡
+		
+		② Kafka消费者
+			1、消费方式
+				pull ：可以按需拉取，但Kafka没有数据可能陷入循环，一直返回空数据。
+			2、消费者工作流程
+				Ⅰ 消费者组
+					Consumer Group
+						所有消费者的 groupid 相同
+						消费者组内每个消费者负责消费不同分区的数据，一个分区只能由一个消费者组内的一个消费者消费。
+						消费者组之间不相互影响。
+				Ⅱ Coordinator:辅助实现消费者组的初始化和分区的分配（每个broker都有）
+					coordinator节点选择 = groupid 的hashcode值 % 50 （__consumer_offset的分区数量），对应的分区所在的节点的coordinator作为消费者组的老大
+				Ⅲ 工作流程
+					找到coordinator
+					每隔consumer发送JoinGroup请求
+					选出一个consumer作为leader
+					把要消费的topic情况发送给leader消费者
+					把消费方案发给coordinator
+					Coordinator把消费方案发给各个consumer
+
+						每个消费者都会和coordinator保持心跳（默认3s），一旦超时 session.timeout.ms=45s,该消费者会被移除，并触发再平衡
+						或者消费者处理消息的时间过长（max.poll.interval.ms=5min），也触发再平衡。
+				Ⅳ 消费流程
+						ConsumerNetWorkClient
+						参数：
+							fetch.min.bytes = 1byte
+							fetch.max.bytes = 50M
+							max.poll.records = 500条	-- 一次拉取返回消息最大条数
+							auto.offset.reset (Kafka中没有初始偏移量或当前偏移量在服务器中不存在（如数据被删除）)
+								eraliest:自动重置偏移量到最早的偏移量
+								latest：默认，自动重置偏移量为最新的偏移量。
+								none：如消费者组原来的偏移量不存在，则向消费者抛异常。
+							offset.topic.num.partitions：__consumer_offsetts的分区数，默认为50个
+							heartbeat.interval.ms：Kafka消费者和coordinator之间的心跳时间，默认是3s
+							session.timeout.ms = 45s 消费者和coordinator超时的时间
+				Ⅴ 分区分配以及再平衡
+					分区分配策略： partition.assignment.strategy,3.0默认是Range + CooperativeSticky
+						Range ：partition数 / consumer数（针对单个topic来处理）		-- 多个topic容易产生数据倾斜，分区数只能增加，不能减少
+						RoundRobin：轮询分配，针对集群中所有topic而言，把所有的partition和所有的consumer都列出来，按照hashcode进行排序，通过轮询算法来分配partition给消费者。
+						Sticky ：partition数 / consumer数（随机分配partition，区别于range），重分配时将挂掉的消费者消费分区分配给剩下消费者
+						CooperativeSticky
+				Ⅵ offset维护
+					offset维护的位置：__consumer_offsets
+						__consumer_offsets主题采用key和value的方式存储数据。key：groupid + topic + 分区号，value：当前的offset值。
+						自动提交offset：
+						enable.auto.commit :是否自动提交offset功能，默认true。
+						auto.commit.interval.ms:自动提交offset得时间间隔，默认5s。
+						手动提交offset：
+							commitSync：同步提交，必须等到offset提交完成只会，才能进行下一次提交。
+							commitAsync：异步提交
+						指定offset进行消费：
+							auto.offset.reset = eariest(--from-beginning) | latest | none 
+							seek(topicpartition,offset);
+								消费者分配分区策略需要较长时间，因此需要等到分区分配完成才能指定位置消费
+						指定时间消费
+				Ⅶ 重复消费和漏消费
+					重复消费：自动提交offset引起，consumer没5s提交offset，提交offset2s后，consumer挂掉，再次重启consumer就会从上一次提交offset处继续消费，导致重复消费。
+					漏消费：手动提交，offset被提交时，数据还在内存中还没落盘，此时刚好消费者线程被kill掉，那么offset已经提交，但数据未处理，导致这部分内存中得数据丢失。
+
+					解决：消费者事务
+				Ⅷ 数据积压
+					Kafka消费者消费能力不足：
+						增加Toipc分区数，增加消费者数。
+					下游得数据处理不及时：
+						提高每批次拉取得数量。批次拉取得数据过少，使得处理的数据小于生产的数据。
+
+六、ElasticSearch
+	1、概述
+		ELK：ES + Logstash + Kibana
+		全文检索搜索引擎
+			搜索并查询分析
+			分布式，可扩展
+			
+	2、进阶
+		① 核心概念
+			Ⅰ Index 索引 
+				能搜索的数据必须索引，这样的好处是可以提高查询速度。
+				ElasticSearch索引的精髓：一切设计都是为了提高搜索的性能。
+			Ⅱ Type 类型
+				7.x之后版本不支持自定义类型，默认类型为_doc
+			Ⅲ Document 文档
+				一个文档是一个可被索引的基础信息单元，也就是一条数据。
+				一个index/type里面可以存储任意多个文档。
+			Ⅳ Field 字段
+				相当于是数据表的字段，对文档数据根据不同属性进行的分类标识。
+			Ⅴ Mapping 映射
+				ES里面数据的一些使用规则设置也叫做映射，按着最优规则处理数据对性能提高很大。
+				类似表结构
+			Ⅵ Shards 分片
+				分片原因：
+					允许水平分割 / 扩展内容容量。
+					提高分布式、并行操作，进而提高性能/吞吐量。
+				一个分片就是一个Lucene索引，一个ElasticSearch索引就是分片的集合。
+				当 Elasticsearch 在索引中搜索的时候， 他发送查询到每一个属于索引的分片(Lucene 索引)，然后合并每个分片的结果到一个全局的结果集。
+			Ⅶ Replicas 副本
+				副本原因：
+					在分片/节点失败的情况下，提供了高可用性。因为这个原因，注意到复制分片从不与原/主要（original/primary）分片置于同一节点上是非常重要的。
+					扩展搜索量/吞吐量，搜索可以在任何副本上并行运行。
+				默认：1个分片 1个副本
+			Ⅷ Allocation 分区分配
+				将分片分配给某个节点的过程，包括分配主分片或者副本。如果是副本，还包含从主分片复制数据的过程。
+				这个过程是由master节点完成的。
+		② 系统架构
+			ElasticSearch集群：由一个或多个拥有相同cluster.name配置的节点组成，共同承担数据和负载的压力。
+			Master节点：
+				负责管理集群范围内的所有变更，例如增加、删除索引，或者增加、删除节点。
+				主节点不需要设计到文档级别的变更和搜索等操作，因此流量的增加Master也不会称为瓶颈。
+			
+			普通节点:
+				每个节点都知道任意文档所处的位置，并且能够将我们的请求直接转发到存储我们所需文档的节点。
+
+			故障转移：
+				只要有相同的cluster.name，他就会发现集群并自动加入其中。
+				新的节点加入，会将分配重新分配到节点上。
+			
+			水平扩容：
+				可以动态调整副本分片数目，按需伸缩集群。
+			
+			应对故障
+				主节点故障后，需要选举新的节点。
+				将故障主节点上的主分片对应的副本分片提升为主分片。
+			
+			路由计算：
+				公式：shard = hash(rounting) % number_of_primary_shards
+				rounting：默认是文档的 _id ,也可以设置为自定义的值。
+				number_of_primary_shards：分片数量。 （主分片数量）
+				所有的文档 API（ get 、 index 、 delete 、 bulk 、 update 以及 mget ）都接受一个叫做 routing 的路由参数 ，
+				通过这个参数我们可以自定义文档到分片的映射。
+			
+			分片控制：
+				协调节点：接收请求的节点，为了实现负载均衡，可以进行轮询集群中的所有节点。
+				写流程：
+					1.客户端向其中一个节点发送新建、索引或者删除请求。
+					2.节点使用文档的 _id 确定文档属于分片S。请求会被转发到拥有S主分片的节点N。
+					3.N节点在主分片上执行请求。如果执行成功，将请求并行转发到其他节点的副本分片上。一旦所有的副本分片都报告成功，
+					N节点将向协调节点报告成功，协调节点向客户端报告成功。
+					参数：
+						consistency:即一致性。 必须要有大多数）的分片副本处于活跃可用状态，才会去执行_写_操作(其中分片副本可以是主分片或者副本分片)
+						one (只要副本分片状态ok就可以执行写操作) all(主分片和副本分片状态都ok) quorum(默认设定值)
+						quorum = int( (primary + number_of_replicas) / 2 ) + 1
+
+						timeout: 默认等待1min
+
+				读流程：
+					客户端向N节点发送获取请求。
+					节点使用文档的id来确定文档属于的分片，并确认副本分片所在的节点。将请求转发到对应的节点N2。
+					N2节点集合将文档返回给N，N进行整理将文档返回给客户端。
+
+					注意：
+						文档可能在主分片已经写入了，但是副本分片还没有写入。副本分片就会报文档不存在，但是主分片成功返回了。
+						一旦索引请求成功返回给用户，文档在主分片和副本分片都是可用的。
+				
+				更新流程：
+					客户端向N节点发送更新请求。
+					将请求转发到文档所在的主分片节点N2。
+					N2节点检索文档，修改_source字段中的JSON，并城市重新索引主分片的文档，如果文档已经被另一个进程修改，会进行重试，超过retry_on_conflict次数后放弃。
+					N2节点成功更新文档，将新版本的文档转发到其他节点的副本分片上，重新建立索引。一旦所有副本分片都返回成功了，N2节点向协调节点返回成功，协调节点返回给客户端。
+
+					注意：当主分片把更改转发到副本分片时， 它不会转发更新请求。 相反，它转发完整文档的新版本。请记住，这些更改将会异步转发到副本分片，
+					并且不能保证它们以发送它们相同的顺序到达。如果Elasticsearch仅转发更改请求，则可能以错误的顺序应用更改，导致得到损坏的文档。
+
+				多文档操作：
+					mget 和 bulk API的模式类似于单文档模式。
+					区别在于协调节点知道每个文档存在于哪个分片中。它将整个多文档请求分解成 每个分片 的多文档请求，并且将这些请求并行转发到每个参与节点。
+					协调节点一旦收到来自每个节点的应答，就将每个节点的响应收集整理成单个响应，返回给客户端。
+
+					步骤：
+						客户端向节点Node1发送mget请求
+						Node1为每个分片构建多文档获取请求，然后并行转发这些请求到托管在每个所需的主分片或副本分片的节点上，一旦收到所有的答复，Node1构建响应并将其返回给客户端。
+
+			分片原理： 一个分片就是一个Lucene执行引擎
+				倒排索引
+					正向索引： 关键词 ---> 文档id
+					倒排索引： 文档id ---> 关键词
+					倒排索引被写入磁盘后是不可改变的，有个版本的字段，每次取最新的。
+
+				动态更新索引（如何保留不变性的前提下实现倒排索引的更新？）
+					用更多的索引，通过增加新的补充索引来反映新近的修改，而不是直接重写整个倒排索引。
+					每一个倒排索引都会被轮流查询到，从最早的开始查询完后再对结果进行合并。
+
+					分片文件存储： 所有段集合 + 提交点（列出所有已知段文件）
+					文件更新时，会将旧段中的文档删除，并在提交点包含一个.del文件，文件会累出这些被删除文档的段信息。（删除同理）
+
+			近实时搜索
+				refresh_interval ： 1s
+				在创建一个大的索引时，而不是为了近实时搜索时，可以将refresh_interval=-1 关闭
+				项目中用了 refresh_interval ： 600s ，为了提高写速度
+
+			持久化变更：
+				translog:事务日志，在每一次对ElasticSearch进行操作时均进行日志记录。
+				大小为512M，写满会触发Flush。
+			
+			segment合并
+				POST your_index/_forcemerge
+			
+			文档冲突：
+				悲观并发控制
+					_version版本控制 （老版本才有，新版本if_seq_no和if_primary_term）
+				乐观并发控制
+
+
+七、Redis
+	1、数据类型
+		String 
+
+		List 
+
+		Map 
+
+		Set 
+
+		ZSet 
+
+		Bitmap 
+
+		
+
+
+
+
+			
+
+
+
+						
+
+
+					
+
+
+
+					
+				
+
+
+
+
+
+
+
+
+
+
+
+			
+						
+						
+						
+				
+			
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
