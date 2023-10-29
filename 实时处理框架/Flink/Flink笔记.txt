@@ -1,0 +1,191 @@
+一、Flink基本概念
+    1、概念：分布式、有状态的实时流式处理系统，计算引擎。
+    2、运行架构
+        任务提交系统将代码逻辑转换成Task提交到集群中运行。
+        JobManager：分发子任务，根据自身的资源管理子任务的启动、停止、销毁、异常恢复等生命周期。向ResourceManager申请资源，申请完后分发到TaskManager。
+        TaskManager：Task Slot 
+        Client ：客户端提交作业，负责StreamGraph和Job Graph作业图的构建。
+    3、特性
+        处理场景：
+            事件驱动型应用：实时风控、实时营销、实时推荐，（监视某些行为满足定义的规则就会报警）规则先定义好
+            流、批数据分析
+            数据管道及ETL
+        
+        自带状态管理机制
+            状态：为了实现计算逻辑，在流式计算中记录一些数据。
+            状态后端：如果状态数据使用代码用变量记录（内存），如果系统崩溃就会丢失记录。 -- 持久化
+            状态管理机管理状态，用户只需要关注逻辑开发。
+        
+        强大的准确性保证
+            exactly-once 状态一致性（端到端）
+            事件时间处理
+            专业的迟到数据处理
+        
+        灵活丰富多层的API
+            SQL -》 TableAPI（DSL） -》 datastream、dataset api（大逻辑已经确定） -》 processFunction
+        
+        规模弹性扩展
+            可扩展的分布式架构（集群级别的资源规模灵活配置，算子粒度的独立并行度灵活配置）
+                算子粒度的独立并行度灵活配置（区别Spark：Spark一个stage划分taskset，taskset根据分区去分配，多个算子经过WholeStogen代码生成一个方法）
+            增量checkpoint机制
+        
+        优秀性能
+            低延迟
+            高吞吐
+            内存计算
+
+    4、操作
+        DataStream抽象
+            不可变，无法自由的添加或修改
+        
+        代码模板
+            编程环境，执行入口env StreamExecutionEnviroment
+            加载数据
+            计算逻辑
+            sink输出
+            env提交 
+    
+二、编程API
+    1、批处理计算：看成是有界流
+        env：ExecutionEnviroment
+    2、流批一体
+        env: StreamExecutionEnviroment
+        env.setRuntimeMode(RuntimeExecutionMode.BATCH);
+        用一套流api所实现的计算任务，底层可以用流模式计算，也可以自动帮你转成批计算模式。
+
+        批处理：（需要落盘）  --- 重跑数据、补数，（不需要改代码，传参）
+            预聚合：Spark reduceByKey在上游做局部聚合
+                   mapreduce可以设置CombinerClass，来做map端的局部聚合
+        流处理：   
+
+    3、lambda表达式
+        单抽象方法的接口，可以使用lambda表达式实现。
+
+        类型擦除
+            编译前是可以检查的，编译完泛型会被擦除，需要显示API，显示返回的类型，去记住类型。
+            .returns(new TypeHint<>(){});
+            或 TypeInfomation.of(new TypeHint<>(){});
+            或 returns(Types.STRING)  -- 产生常见类型TypeInfomation
+
+            Tuple2<>里面也是泛型，会被擦除，因此里面也需要去记录类型信息TypeInfomation
+            泛型也是一种参数
+
+    4、基本Source算子
+        fromElements
+        fromCollection
+        socketTextStream
+        readFile(FileInputFormat inputFormat, String filePath)
+        readTextFile(String filePath)
+
+        KafkaSource
+            kafa 偏移量提交
+                auto.offset.commit 自动提交 
+                Flink会自动提交offset到算子状态上
+        
+        自定义Source
+            实现SourceFunction,RichSourceFunction
+            继承ParallelSourceFunction RichParallelSourceFunction：生命周期方法和上下文环境 
+            带Rich的都有open、close、getRuntionContext
+
+            spark: taskset --> task  task的数量是根据数据分区划分的
+            flink: task --> subtask subtask的数量是根据slot数划分的
+        
+        Sink Kafka sink 
+            sinkTo()
+            算子链 disableChaining：不绑定为一个算子链
+
+        Jdbc Sink
+            MySQL不支持一个连接上有多个事务
+            Oracle支持
+
+            不保证exactly-once 
+            保证exactly-once 
+        
+        Redis Sink
+            自己编译源码:Project from version controller 
+
+        
+    5、多流操作
+        1.老版本分流1.12 split(new OutputSelector())
+        
+        2.新版本分流
+            process(new processFunction())
+            创建标签 --》 写到对应的标签中
+            dataStream.getSideOutPut(OutputTag())
+
+        3.connect 连接 --》 数据类型可以不一致
+            将两个流建立联系，变成一个大流，底层还是两个流在进行处理，但是可以共享状态。
+            ConnectedStream 
+                CoMapFunction
+                CoFlatMapFunction
+
+        4.union 必须是相同的数据类型
+        
+        5.coGroup  
+            Spark 中也有rdd1.coGroup(rdd2) 
+
+            stream1.coGroup(stream2)
+                流式数据需要划分窗口，对窗口里的数据进行coGroup分组
+                每个窗口内相同的key分别在两个流中划分到不同的迭代器中
+        
+        6.join关联
+            类似coGroup
+            s1.join(s2).where(KeySelector).equalTo().window().apply(JoinFunction)
+
+        7.broadcast 广播流算子
+
+            主流：持有广播状态
+            广播流：实时插入到主流持有的广播状态中
+            s2broadcast = s2.broadcast(new MapStateDescriptor())      -- 广播s2流
+            connect = s1.connect(s2broadcast)
+            connect.process(new BroadCastFunction())
+                BroadCastFunction
+                    processElement
+                    processBroadcastElement
+                        中间使用一个状态进行让两个方法共享变量
+
+        8.processFunction
+    
+    6、并行度API
+        客户端解析 --> jobGraph executeAsync(streamGraph)
+        同一个task的多个并行实例，不能放在同一个taskslot上运行，一个taskslot可以运行多个不同的task的各自1个并行实例
+        job中只要有一个task的并行度（集群中可用的总槽位），这个job就会提交失败。
+
+        什么是task？
+            对算子（表达计算逻辑）的封装（task类），
+
+        什么是task的运行并行实例？
+
+        一份代码main()方法执行是以进程运行的，可以在进程里开启多线程进行并行执行。
+        扩容：
+            一个进程（mian）可以执行多个线程（并行实例一个Subtask） 
+            资源不够，可以加机器（TaskManager），在新的进程上也可以运行多线程（多个实例）
+            Task --》 SubTask 类比： 类 --》 对象
+
+        算子链
+            作用：省掉网络传输、线程个数
+
+            什么样的算子可以绑定一起，放到算子链中？
+                上下游实例之间one to one 数据传输（forward）
+                并行度相同（实例相同） -- 可以手动设置并行度
+                属于相同的slotSharingGroup（在同一个task实例） -- 用户可以自定义
+
+                槽位共享组：
+                    属于同一个共享组的算子，允许共享槽位
+                    属于不同共享组的算子，绝不允许共享槽位 （对于计算任务比较重的算子，可以将他们分到不同的共享组中，进行灵活分配资源）
+
+        一个Job中并行度最大的那个task的并行度 <= 可用槽位数
+
+        调度单位：以槽位为调度单位
+
+        API： 
+            setParallelism()
+            slotSharingGroup()
+            disableChaining():前后算子禁用合并
+            startNewChain()
+        
+        分区算子：
+            datastream分发规则，默认使用rebalance
+            forward、rescale（本地轮流分配）、shuffle（随机发送）、global（发往第一个task）、broadcast
+
+
